@@ -18,9 +18,20 @@ if (process.env.JWT_SECRET === 'your_rotated_jwt_secret_here' || process.env.JWT
 
 const app = express();
 
-// Middleware
+// Comma-separated origins, e.g. https://docapoint.netlify.app,http://localhost:5173
+const allowedOrigins = (process.env.CLIENT_ORIGIN || process.env.CLIENT_URL || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: process.env.CLIENT_URL || process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS blocked for origin: ${origin}`));
+    }
+  },
   credentials: true
 }));
 app.use(express.json());
