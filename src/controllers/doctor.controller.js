@@ -2,11 +2,17 @@ const Doctor = require('../models/Doctor.model');
 
 const getAllDoctors = async (req, res) => {
   try {
-    const { search, sort, limit } = req.query;
+    const { search, sort, specialty } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 60;
+    const skip = (page - 1) * limit;
     
     let queryObj = {};
     if (search) {
       queryObj.name = { $regex: search, $options: 'i' };
+    }
+    if (specialty) {
+      queryObj.specialty = { $regex: specialty, $options: 'i' };
     }
 
     let dbQuery = Doctor.find(queryObj);
@@ -14,35 +20,43 @@ const getAllDoctors = async (req, res) => {
     // Database-level sorting
     if (sort === 'rating') {
       dbQuery = dbQuery.sort({ rating: -1 }); // Descending
-    } else if (sort === 'fee') {
+    } else if (sort === 'fee_low') {
       dbQuery = dbQuery.sort({ fee: 1 }); // Ascending
+    } else if (sort === 'fee_high') {
+      dbQuery = dbQuery.sort({ fee: -1 }); // Descending
     }
+
+    const total = await Doctor.countDocuments(queryObj);
+    let doctors;
 
     // If sorting by experience, we must fetch first and sort in memory 
-    // because experience is a string (e.g. '5 years') and we need to parse it.
-    // Therefore, we can't apply the DB limit yet if we're sorting by experience.
-    if (sort !== 'experience' && limit) {
-      dbQuery = dbQuery.limit(parseInt(limit));
-    }
-
-    let doctors = await dbQuery;
-
-    // In-memory sorting for experience
+    // because experience is a string (e.g. '5 years').
     if (sort === 'experience') {
+      let allDoctors = await dbQuery;
+      
       // Parse integers from strings like '5 Years' and sort descending
-      doctors.sort((a, b) => {
+      allDoctors.sort((a, b) => {
         const expA = parseInt(a.experience) || 0;
         const expB = parseInt(b.experience) || 0;
         return expB - expA;
       });
 
-      // Apply limit after in-memory sort
-      if (limit) {
-        doctors = doctors.slice(0, parseInt(limit));
-      }
+      // Apply pagination in memory
+      doctors = allDoctors.slice(skip, skip + limit);
+    } else {
+      // Normal DB pagination
+      doctors = await dbQuery.skip(skip).limit(limit);
     }
 
-    res.status(200).json({ success: true, count: doctors.length, data: doctors });
+    res.status(200).json({ 
+      success: true, 
+      count: doctors.length,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+      hasMore: page < Math.ceil(total / limit),
+      data: doctors 
+    });
   } catch (error) {
     console.error('Error fetching doctors:', error);
     res.status(500).json({ success: false, message: 'Server Error' });
